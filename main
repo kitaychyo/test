@@ -1,0 +1,131 @@
+import os
+import sqlite3
+import telebot
+from telebot import types
+import smtplib
+from email.mime.text import MIMEText
+from email.header import Header
+
+mas_admin = []
+mas_user = []
+bot = telebot.TeleBot('7834616242:AAETH7flhfOzg1fZ8sKW9Tw0PaP68lAchnc')
+PAYMENT_TOKEN = '1744374395:TEST:5b865a21a723756edb4d'
+os.environ['PASSWORD'] = 'qcdkjlrxghhwcoha'
+mas_admin_mail = ['dsaw26283@gmail.com']
+
+def execute_admin():
+    connection = sqlite3.connect("C:/sqlite/test.db")
+    cursor = connection.cursor()
+
+    # Извлечение всех пользователей из таблицы
+    cursor.execute('SELECT * FROM admins')
+    rows = cursor.fetchall()
+
+    mas_admin, mas_admin_mail = [], []
+
+    for row in rows:
+        mas_admin.append(row[0])
+        mas_admin_mail.append(row[1])
+    connection.close()
+    return mas_admin, mas_admin_mail
+
+def execute_users():
+    connection = sqlite3.connect("C:/sqlite/test.db")
+    cursor = connection.cursor()
+
+    # Извлечение всех пользователей из таблицы
+    cursor.execute('SELECT * FROM users')
+    rows = cursor.fetchall()
+
+    mas_user = []
+
+    for row in rows:
+        mas_user.append(row[0])
+    connection.close()
+    return mas_user
+
+mas_admin, mas_admin_mail = execute_admin()
+mas_user = execute_users()
+
+def add_user(user_id):
+    connection = sqlite3.connect("C:/sqlite/test.db")
+    cursor = connection.cursor()
+
+    # Добавление нового пользователя
+    cursor.execute('''
+        INSERT OR IGNORE INTO users (user_id) VALUES (?)
+    ''', (user_id,))
+
+    connection.commit()
+    connection.close()
+
+def send_ya_mail(recipients_emails: list, msg_text: str):
+    login = 'T35t-adm1n123@yandex.ru'
+    password = os.getenv('PASSWORD')
+
+    msg = MIMEText(f'{msg_text}', 'plain', 'utf-8')
+    msg['Subject'] = Header('Важное!', 'utf-8')
+    msg['From'] = login
+    msg['To'] = ', '.join(recipients_emails)
+
+    s = smtplib.SMTP('smtp.yandex.ru', 587, timeout=10)
+
+    try:
+        s.starttls()
+        s.login(login, password)
+        s.sendmail(msg['From'], recipients_emails, msg.as_string())
+    except Exception as ex:
+        print(ex)
+    finally:
+        s.quit()
+
+@bot.message_handler(commands=['start'])
+def start(message):
+    keyboard = telebot.types.InlineKeyboardMarkup()
+    keyboard.add(telebot.types.InlineKeyboardButton('Оплата', callback_data='button1'))
+    keyboard.add(telebot.types.InlineKeyboardButton('Сообщение админу', callback_data='button2'))
+    if message.from_user.id in mas_admin:
+        keyboard.add(telebot.types.InlineKeyboardButton('Список пользоватлей', callback_data='button3'))
+    if message.from_user.id not in mas_user:
+        bot.send_message(message.chat.id, 'Первичное сообщение', reply_markup=keyboard)
+        mas_user.append(message.from_user.id)
+        add_user(message.from_user.id)
+
+    else: bot.send_message(message.chat.id, 'Вторичное сообщение', reply_markup=keyboard)
+
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback_inline(call):
+
+    if call.data == 'button1':
+        price = types.LabeledPrice(label="Тестовый товар", amount=5000)  # 50.00 в рублях
+        bot.send_invoice(
+            chat_id=call.message.chat.id,
+            title="Тестовый товар",
+            description="Описание тестового товара",
+            invoice_payload="unique_payload",
+            provider_token=PAYMENT_TOKEN,
+            currency="rub",
+            prices=[price],
+            start_parameter="test_payment"
+        )
+    elif call.data == 'button2':
+        msg = bot.send_message(call.message.chat.id, 'Введите сообщение для админа')
+        bot.register_next_step_handler(msg, handle_admin_message)
+
+    elif call.data == 'button3':
+        bot.send_message(call.message.chat.id, f'cписок пользователей {mas_user}')
+
+@bot.message_handler(content_types=['successful_payment'])
+def successful_payment(message):
+    bot.send_message(message.chat.id, "успешная оплата")
+
+def handle_admin_message(message):
+    send_ya_mail(
+        recipients_emails=mas_admin_mail,
+        msg_text=message.text
+    )
+    bot.send_message(message.chat.id, "Ваше сообщение отправлено администратору!")
+
+
+bot.polling(none_stop=True)
